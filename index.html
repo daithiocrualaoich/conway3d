@@ -1,0 +1,222 @@
+<html>
+<head>
+    <title>Conway3D</title>
+    <style>
+        body { margin: 0; }
+        canvas { width: 100%; height: 100% }
+    </style>
+</head>
+<body>
+
+    <script src="three.min.js"></script>
+
+    <script>
+        var model = (function() {
+            var WIDTH = 20;
+            var HEIGHT = 20;
+
+            // Create the grid with random initialisation
+            var grid = [];
+            for (var x = 0; x < WIDTH; x++) {
+                var column = [];
+                for (var y = 0; y < HEIGHT; y++) {
+                    column.push(Math.random() < .5)
+                }
+                grid.push(column);
+            }
+
+            function getNeighbours(x, y) {
+                var neighbours = [];
+                
+                if (x > 0 && y > 0) {
+                    neighbours.push(grid[x-1][y-1]);
+                }
+      
+                if (x > 0) {
+                    neighbours.push(grid[x-1][y]);
+                }
+
+                if (x > 0 && y < HEIGHT-1) {
+                    neighbours.push(grid[x-1][y+1]);
+                }
+
+                if (y > 0) {
+                    neighbours.push(grid[x][y-1]);
+                }
+
+                if (y < HEIGHT-1) {
+                    neighbours.push(grid[x][y+1]);
+                }
+
+                if (x < WIDTH - 1 && y > 0) {
+                    neighbours.push(grid[x+1][y-1]);
+                }
+
+                if (x < WIDTH - 1) {
+                    neighbours.push(grid[x+1][y]);
+                }
+
+                if (x < WIDTH - 1 && y < HEIGHT-1) {
+                    neighbours.push(grid[x+1][y+1]);
+                }
+                
+                return neighbours;
+            }
+            
+            function getNeighboursAliveCount(x, y) {
+                var count = 0;
+                getNeighbours(x, y).forEach(function(neighbour) {
+                    if (neighbour) {
+                        count++;
+                    }
+                });
+                
+                return count;
+            }
+
+            function cellAliveInNextIteration(x, y) {
+                var neighboursAlive = getNeighboursAliveCount(x, y);
+                
+                if (grid[x][y]) {
+                    return (neighboursAlive == 2 || neighboursAlive == 3);
+                }
+                
+                return neighboursAlive == 3;
+            }
+
+            return {
+                width: WIDTH,
+                height: HEIGHT,
+
+                isAlive: function(x, y) {
+                    return grid[x][y];
+                },
+                step: function() {
+                    var update = [];
+                    for (var x = 0; x < WIDTH; x++) {
+                        var column = [];
+                        for (var y = 0; y < HEIGHT; y++) {
+                            column.push(cellAliveInNextIteration(x, y));
+                        }
+                        update.push(column);
+                    }
+                    
+                    for (var x = 0; x < WIDTH; x++) {
+                        for (var y = 0; y < HEIGHT; y++) {
+                            grid[x][y] = update[x][y];
+                        }
+                    }
+                }
+            }
+        }());
+
+        var view = (function() {
+            var scene = new THREE.Scene();
+
+            // Let there be light!
+            var light = new THREE.PointLight(0xFFFFFF);
+            scene.add(light);
+
+            var cameraRotationDegrees = 90;
+            var cameraRadius = Math.max(model.width, model.height) + 5;
+            
+            var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.x = 0;
+            camera.position.y = 0;
+            camera.position.z = cameraRadius;
+            
+            function orientCameraAndLight() {
+                var cameraRotation = THREE.Math.degToRad(cameraRotationDegrees); 
+                camera.position.x = cameraRadius * Math.cos(cameraRotation);
+                camera.position.z = cameraRadius * Math.sin(cameraRotation);
+                camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+                // The light is always at the camera position.
+                light.position.x = camera.position.x;
+                light.position.y = camera.position.y;
+                light.position.z = camera.position.z;
+            }
+            
+            // Make the grid cell by cell
+            var cells = [];
+            for (var x = 0; x < model.width; x++) {
+                var column = [];
+                for (var y = 0; y < model.height; y++) {
+                    var geometry = new THREE.BoxGeometry(1, 1, 1);
+                    var material = new THREE.MeshLambertMaterial({ color: 0x80081B });
+                    var cube = new THREE.Mesh(geometry, material);
+
+                    cube.position.x = x;
+                    cube.position.y = y;
+
+                    cube.translateX(-model.width/2);
+                    cube.translateY(-model.height/2);
+                    
+                    column.push({
+                        mesh: cube,
+                        visible: false
+                    });
+                }
+                cells.push(column);
+            }
+            
+            function updateGridFromModel() {
+                for (var x = 0; x < model.width; x++) {
+                    for (var y = 0; y < model.height; y++) {
+                        var cell = cells[x][y];
+                        if (model.isAlive(x, y)) {
+                            if (!cell.visible) {
+                                scene.add(cell.mesh);
+                                cell.visible = true;
+                            }
+                        } else {
+                            if (cell.visible) {
+                                scene.remove(cell.mesh);
+                                cell.visible = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            updateGridFromModel();
+            orientCameraAndLight();
+            
+            var renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            return {
+                rotateCamera: function(degrees) {
+                    cameraRotationDegrees += degrees % 360;
+                    orientCameraAndLight();
+                },
+                render: function() {
+                    renderer.render(scene, camera);
+                },
+                update: function() {
+                    updateGridFromModel();
+                }
+            }
+        }());
+        
+        var animationLoop = function() {
+            requestAnimationFrame(animationLoop);
+            view.rotateCamera(1);
+            view.render();
+        };
+
+        animationLoop();
+        
+        setInterval(function() {
+            model.step();
+            view.update();
+        }, 1000);
+
+    </script>
+
+</body>
+</html>
